@@ -86,7 +86,11 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         # finally, apply a filter to the Fourier space data.
         filter = numpy.exp(-0.5 * numpy.square(rr / sigma1)) - (1.0 - weight2) * numpy.exp(
             -0.5 * numpy.square(rr / sigma2))
+        
+        central_value = fft_data[data.shape[0]/2, data.shape[1]/2]
         filtered_fft_data = fft_data * filter
+        # Normalize result
+        filtered_fft_data[data.shape[0]/2, data.shape[1]/2] = central_value
         
         fft_calibration = self.__api.create_calibration(scale=1/(dimensional_calibrations[0].scale*data.shape[0]),
                                                         units='1/'+dimensional_calibrations[1].units if
@@ -136,7 +140,8 @@ class DoubleGaussianFilterAMOperationDelegate(object):
             self.line_profile_data_item = self.__api.library.create_data_item_from_data_and_metadata(
                                                                         self.line_profile_data_item.data_and_metadata,
                                                                         title="Line Profile of Filter")
-            self.line_profile_data_item.set_data((filter[filter.shape[0]/2, filter.shape[1]/2:]).astype(numpy.float32))
+            self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
+                                            filter.shape[1]/2:filter.shape[1]/2*(1+2*sigma1)]).astype(numpy.float32))
             
         self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
         self.line_profile_data_item.set_dimensional_calibrations([fft_calibration])
