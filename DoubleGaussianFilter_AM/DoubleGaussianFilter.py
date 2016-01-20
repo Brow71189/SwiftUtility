@@ -31,9 +31,9 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         self.operation_name = _("Double Gaussian Filter AM")
         self.operation_prefix = _("Double Gaussian Filter of ")
         self.operation_description = [
-            {"name": _("Sigma 1"), "property": "sigma1", "type": "scalar", "default": 0.2},
-            {"name": _("Sigma 2"), "property": "sigma2", "type": "scalar", "default": 0.1},
-            {"name": _("Weight 2"), "property": "weight2", "type": "scalar", "default": 0.15}
+            {"name": _("Sigma 1\n(large)"), "property": "sigma1", "type": "scalar", "default": 0.4},
+            {"name": _("Sigma 2\n(small)"), "property": "sigma2", "type": "scalar", "default": 0.2},
+            {"name": _("Weight 2"), "property": "weight2", "type": "scalar", "default": 0.3}
         ]
         self.fft_data_item = fft_data_item
         self.small_ellipse_region = small_ellipse_region
@@ -64,8 +64,8 @@ class DoubleGaussianFilterAMOperationDelegate(object):
 
         # grab our parameters. ideally this could just access the member variables directly,
         # but it doesn't work that way (yet).
-        sigma1 = parameters.get("sigma1")
-        sigma2 = parameters.get("sigma2")
+        sigma1 = parameters.get("sigma1")**2
+        sigma2 = parameters.get("sigma2")**2
         weight2 = parameters.get("weight2")
 
         # first calculate the FFT
@@ -129,7 +129,8 @@ class DoubleGaussianFilterAMOperationDelegate(object):
 
         self.fft_data_item.set_data((numpy.log(numpy.abs(fft_data))*filter).astype(numpy.float32))
         try:
-            self.line_profile_data_item.set_data((filter[filter.shape[0]/2, filter.shape[1]/2:]).astype(numpy.float32))
+            self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
+                                            filter.shape[1]/2:filter.shape[1]/2*(1+2*sigma1)]).astype(numpy.float32))
         except Exception as detail:
             print('Could not change line profile data item. Reason: ' + str(detail))
             self.line_profile_data_item = self.__api.library.create_data_item_from_data_and_metadata(
