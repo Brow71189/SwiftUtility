@@ -4,10 +4,26 @@ Created on Tue Oct  6 14:00:54 2015
 
 @author: mittelberger
 """
-from PIL import Image
+
+_has_PIL = False
+try:
+    from PIL import Image
+except ImportError:
+    pass
+else:
+    _has_PIL = True
+    
 import numpy as np
 import os
-import h5py
+
+_has_h5py = False
+try:
+    import h5py
+except ImportError:
+    pass
+else:
+    _has_h5py = True
+    
 import struct
 
 ####################################################################################################
@@ -96,7 +112,18 @@ if __name__ == '__main__':
         for entry in double_names:
             logfile.write(entry + '\t')
         logfile.write('comment\n')
-
+    
+    if save_as_hdf5 and not _has_h5py:
+        print('Cannot save data in a h5py file because h5py is not installed. Will try to save as tiff files instead.')
+        save_as_hdf5 = False
+    
+    if not save_as_hdf5 and not _has_PIL:
+        if _has_h5py:
+            print('Cannot save data as tiff files because PIL is not installed. Will try to save in hdf5 file instead.')
+        else:
+            raise RuntimeError('Cannot save output data because neither PIL nor h5py is installed on your system. ' +
+                               'Please install at least one of these modules to use image converter.')
+        
     if save_as_hdf5:
         h5file = h5py.File(os.path.normpath(path)+'_h5.hdf5')
         data, integers, doubles, comment = read_img(matched_dirlist[counter], path=path)

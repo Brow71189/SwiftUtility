@@ -96,12 +96,18 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                                                         units='1/'+dimensional_calibrations[1].units if
                                                         dimensional_calibrations[1].units else '')
         if self.fft_data_item is None:
-            self.fft_data_item = api.library.create_data_item("Filtered FFT")
+            try:
+                self.fft_data_item = api.library.create_data_item("Filtered FFT")
+            except:
+                pass
         if self.line_profile_data_item is None:
-            self.line_profile_data_item = api.library.create_data_item("Line Profile of Filter")
-        if self.small_ellipse_region is None:
+            try:
+                self.line_profile_data_item = api.library.create_data_item("Line Profile of Filter")
+            except:
+                pass
+        if self.small_ellipse_region is None and self.fft_data_item is not None:
             self.small_ellipse_region = self.fft_data_item.add_ellipse_region(0.5, 0.5, sigma2, sigma2)
-        else:
+        elif self.fft_data_item is not None:
             try:
                 self.fft_data_item.remove_region(self.small_ellipse_region)
             except Exception as detail:
@@ -115,9 +121,9 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                                                                                 title="Filtered FFT")
                 self.small_ellipse_region = self.fft_data_item.add_ellipse_region(0.5, 0.5, sigma2, sigma2)
         
-        if self.big_ellipse_region is None:
+        if self.big_ellipse_region is None  and self.fft_data_item is not None:
             self.big_ellipse_region = self.fft_data_item.add_ellipse_region(0.5, 0.5, sigma1, sigma1)
-        else:
+        elif self.fft_data_item is not None:
             try:
                 self.fft_data_item.remove_region(self.big_ellipse_region)
             except Exception as detail:
@@ -131,20 +137,25 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                                                                                 title="Filtered FFT")
                 self.big_ellipse_region = self.fft_data_item.add_ellipse_region(0.5, 0.5, sigma1, sigma1)
 
-        self.fft_data_item.set_data((numpy.log(numpy.abs(fft_data))*filter).astype(numpy.float32))
-        try:
-            self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
+        if self.fft_data_item is not None:
+            self.fft_data_item.set_data((numpy.log(numpy.abs(fft_data))*filter).astype(numpy.float32))
+        
+        if self.line_profile_data_item is not None:
+            try:
+                self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
                                             filter.shape[1]/2:filter.shape[1]/2*(1+2*sigma1)]).astype(numpy.float32))
-        except Exception as detail:
-            print('Could not change line profile data item. Reason: ' + str(detail))
-            self.line_profile_data_item = self.__api.library.create_data_item_from_data_and_metadata(
+            except Exception as detail:
+                print('Could not change line profile data item. Reason: ' + str(detail))
+                self.line_profile_data_item = self.__api.library.create_data_item_from_data_and_metadata(
                                                                         self.line_profile_data_item.data_and_metadata,
                                                                         title="Line Profile of Filter")
-            self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
+                self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
                                             filter.shape[1]/2:filter.shape[1]/2*(1+2*sigma1)]).astype(numpy.float32))
-            
-        self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
-        self.line_profile_data_item.set_dimensional_calibrations([fft_calibration])
+
+        if self.fft_data_item is not None:            
+            self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
+        if self.line_profile_data_item is not None:
+            self.line_profile_data_item.set_dimensional_calibrations([fft_calibration])
         
 
         # and then do invert FFT and take the real value.
