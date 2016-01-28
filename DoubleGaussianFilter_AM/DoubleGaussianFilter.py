@@ -25,7 +25,8 @@ _ = gettext.gettext
 
 class DoubleGaussianFilterAMOperationDelegate(object):
 
-    def __init__(self, api, fft_data_item, small_ellipse_region, big_ellipse_region, line_profile_data_item):
+    def __init__(self, api, fft_data_item, small_ellipse_region, big_ellipse_region, line_profile_data_item,
+                 interval_region):
         self.__api = api
         self.operation_id = "double-gaussian-filter-operation_am"
         self.operation_name = _("Double Gaussian Filter AM")
@@ -33,12 +34,15 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         self.operation_description = [
             {"name": _("Sigma 1\n(large)"), "property": "sigma1", "type": "scalar", "default": 0.4},
             {"name": _("Sigma 2\n(small)"), "property": "sigma2", "type": "scalar", "default": 0.2},
-            {"name": _("Weight 2"), "property": "weight2", "type": "scalar", "default": 0.3}
+            {"name": _("Weight 2"), "property": "weight2", "type": "scalar", "default": 0.3},
+            {"name": _("Show Graphene Peak positions"), "property": "show_gpp", "type": "boolean-checkbox",
+             "default": False }
         ]
         self.fft_data_item = fft_data_item
         self.small_ellipse_region = small_ellipse_region
         self.big_ellipse_region = big_ellipse_region
         self.line_profile_data_item = line_profile_data_item
+        self.interval_region = interval_region
         
 
     def can_apply_to_data(self, data_and_metadata):
@@ -67,6 +71,7 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         sigma1 = parameters.get("sigma1")**2
         sigma2 = parameters.get("sigma2")**2
         weight2 = parameters.get("weight2")
+        show_gpp = parameters.get("show_gpp")
 
         # first calculate the FFT
         fft_data = scipy.fftpack.fftshift(scipy.fftpack.fft2(data_copy))
@@ -151,7 +156,43 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                                                                         title="Line Profile of Filter")
                 self.line_profile_data_item.set_data((filter[filter.shape[0]/2,
                                             filter.shape[1]/2:filter.shape[1]/2*(1+2*sigma1)]).astype(numpy.float32))
-
+        
+        if show_gpp:
+            if self.interval_region is None and self.line_profile_data_item is not None:
+                line_length = len(self.line_profile_data_item.data_and_metadata.data)*fft_calibration.scale
+                if line_length > 8.13:
+                    self.interval_region = self.line_profile_data_item.add_interval_region(4.69/line_length,
+                                                                                           8.13/line_length)
+            elif self.line_profile_data_item is not None:
+                line_length = len(self.line_profile_data_item.data_and_metadata.data)*fft_calibration.scale
+                try:
+                    self.line_profile_data_item.remove_region(self.interval_region)
+                except Exception as detail:
+                    print('Could not remove interval region. Reason: ' + str(detail))
+                try:
+                    if line_length > 8.13:
+                        self.interval_region = self.line_profile_data_item.add_interval_region(4.69/line_length,
+                                                                                               8.13/line_length)
+                except Exception as detail:
+                    print('Could not interval region. Reason: ' + str(detail))
+                    self.line_profile_data_item = self.__api.library.create_data_item_from_data_and_metadata(
+                                                                        self.line_profile_data_item.data_and_metadata,
+                                                                        title="Line Profile of Filter")
+                    if line_length > 8.13:
+                        self.interval_region = self.line_profile_data_item.add_interval_region(4.69/line_length,
+                                                                                               8.13/line_length)
+                                                                                               
+        if self.interval_region is not None:
+            self.interval_region.set_property('label', 'Graphene Peak Positions')
+            
+        if not show_gpp and self.interval_region is not None:
+            try:
+                self.line_profile_data_item.remove_region(self.interval_region)
+            except Exception as detail:
+                print('Could not remove interval region. Reason: ' + str(detail))
+            else:
+                self.interval_region = None
+                
         if self.fft_data_item is not None:            
             self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
         if self.line_profile_data_item is not None:
@@ -178,12 +219,14 @@ class DoubleGaussianAMExtension(object):
         self.small_ellipse_region = None
         self.big_ellipse_region = None
         self.line_profile_data_item = None
+        self.interval_region = None
         # be sure to keep a reference or it will be closed immediately.
         self.__operation_ref = api.create_unary_operation(DoubleGaussianFilterAMOperationDelegate(api,
                                                                                         self.fft_data_item,
                                                                                         self.small_ellipse_region,
                                                                                         self.big_ellipse_region,
-                                                                                        self.line_profile_data_item))
+                                                                                        self.line_profile_data_item,
+                                                                                        self.interval_region))
 
     def close(self):
         # close will be called when the extension is unloaded. in turn, close any references so they get closed. this
