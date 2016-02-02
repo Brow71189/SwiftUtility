@@ -70,7 +70,7 @@ def read_img(name, path=None):
         
         data = np.fromfile(raw, dtype=numbertype).reshape((integers['Ny'], integers['Nx']), order='F')
         
-    return (data, integers, doubles, comment)
+    return (np.flipud(data), integers, doubles, comment)
 
 def save_file_in_hdf5(data, name, h5dataset):
     name = os.path.splitext(name)[0].split(separator)
@@ -79,9 +79,8 @@ def save_file_in_hdf5(data, name, h5dataset):
 
 def save_file_as_tiff(data, name, savepath):    
     name = os.path.splitext(name)[0].split(separator)
-    savename = name[0] + separator + ('{:0' + str(len(str(np.prod(np.array(shape_map))))) + 'd}').format(int(name[2]) + \
-               shape_map[1]*int(name[1])) + separator + name[1] + separator
-    savename += name[2] + '.tif'
+    savename = name[0] + separator + ('{:0' + str(len(str(np.prod(np.array(shape_map))))) + 'd}').format(int(name[1]) +
+               shape_map[1]*(shape_map[0] - int(name[2]) - 1)) + separator + name[1] + separator + name[2] + '.tif'
 
     complete_savepath = os.path.join(savepath, savename)
     # create output
