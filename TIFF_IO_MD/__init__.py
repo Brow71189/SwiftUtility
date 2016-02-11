@@ -29,12 +29,43 @@ class TIFFIODelegate(object):
         self.io_handler_extensions = ["tif", "tiff"]
 
     def read_data_and_metadata(self, extension, file_path):
+        x_resolution = y_resolution = 1
+        unit = ''
+        with tifffile.TiffFile(file_path) as tiffimage:
+            if tiffimage.is_imagej:
+                try:
+                    tiffpage = tiffimage.pages[0]
+                    tiffpage._patch_imagej()
+                    x_resolution = tiffpage.tags['x_resolution'].value
+                    y_resolution = tiffpage.tags['y_resolution'].value
+                    x_resolution = x_resolution[0]/x_resolution[1]
+                    y_resolution = y_resolution[0]/y_resolution[1]
+                    description = tiffpage.tags['image_description'].value.decode()
+                    description = description.split()
+                    unit = ''
+                    for element in description:
+                        if element.startswith('unit'):
+                            element = element.split('=')
+                            unit = element[1]                        
+                except Exception as detail:
+                    print('Could not get tiff metadata. Reason: ' + str(detail))
+                    x_resolution = y_resolution = 1
+                    unit = ''
+            else:
+                print('Image seems not to be created with imagej. Could not get metadata.')
+        
+        print(str(x_resolution), str(y_resolution), unit)
         data = tifffile.imread(file_path)
+            
+            
         if data.dtype == numpy.uint8 and data.shape[-1] == 3 and len(data.shape) > 1:
             data = data[:,:,(2, 1, 0)]
         if data.dtype == numpy.uint8 and data.shape[-1] == 4 and len(data.shape) > 1:
             data = data[:,:,(2, 1, 0, 3)]
-        return self.__api.create_data_and_metadata_from_data(data)
+            
+        dimensional_calibrations = [self.__api.create_calibration(offset=0.0, scale=1/y_resolution, units=unit),
+                                    self.__api.create_calibration(offset=0.0, scale=1/x_resolution, units=unit)]
+        return self.__api.create_data_and_metadata_from_data(data, dimensional_calibrations=dimensional_calibrations)
 
     def can_write_data_and_metadata(self, data_and_metadata, extension):
         return data_and_metadata.is_data_2d

@@ -29,10 +29,10 @@ class IMGIODelegate(object):
 
     def read_data_and_metadata(self, extension, file_path):
         data, integers, doubles, comment = convert_img.read_img(file_path)
-        #doubles.pop('aux_data')
-        #print(integers)
-        #print(doubles)
-        #print(comment)
+        doubles.pop('aux_data')
+        print(integers)
+        print(doubles)
+        print(comment)
         dimensional_calibrations = [self.__api.create_calibration(offset=0.0, scale=doubles['dy']/10.0, units='nm'),
                                     self.__api.create_calibration(offset=0.0, scale=doubles['dx']/10.0, units='nm')]
         return self.__api.create_data_and_metadata(data, dimensional_calibrations=dimensional_calibrations)

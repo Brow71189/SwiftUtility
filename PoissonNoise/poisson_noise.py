@@ -57,7 +57,7 @@ class PoissonOperationDelegate(object):
         # grab our parameters. ideally this could just access the member variables directly,
         # but it doesn't work that way (yet).
         mean = parameters.get("mean")**2*100 + 1
-        background = parameters.get("background")
+        background = parameters.get("background")**2*10
         
         current_mean = np.mean(data_copy)
 
