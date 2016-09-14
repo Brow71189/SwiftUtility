@@ -68,7 +68,7 @@ class TIFFIODelegate(object):
         return self.__api.create_data_and_metadata_from_data(data, dimensional_calibrations=dimensional_calibrations)
 
     def can_write_data_and_metadata(self, data_and_metadata, extension):
-        return data_and_metadata.is_data_2d
+        return data_and_metadata.is_data_2d or data_and_metadata.is_data_1d or data_and_metadata.is_data_3d
 
     def write_data_and_metadata(self, data_and_metadata, file_path, extension):    
         data = data_and_metadata.data
@@ -93,27 +93,40 @@ class TIFFIODelegate(object):
             logging.warn('Could not get calibration of the data item. Reason: ' + str(detail))
             resolution = None
         else:
-            if calibrations[0].scale != 0:
-                resolution = (1/calibrations[0].scale, )
-            else:
-                resolution = (1,)
-            if calibrations[1].scale != 0:
-                resolution += (1/calibrations[1].scale, )
-            else:
-                resolution = (1,)
+            resolution = tuple()
+            tifffile_metadata['kwargs']['unit'] = ''
+            calibrations.reverse()
+            for calibration in calibrations:
+                if calibration.scale != 0:
+                    resolution += (1/calibration.scale, )
+                else:
+                    resolution += (1,)
+                if not calibration.units in tifffile_metadata['kwargs']['unit']:
+                    tifffile_metadata['kwargs']['unit'] += calibration.units
+#            if calibrations[0].scale != 0:
+#                resolution = (1/calibrations[0].scale, )
+#            else:
+#                resolution = (1,)
+#            if calibrations[1].scale != 0:
+#                resolution += (1/calibrations[1].scale, )
+#            else:
+#                resolution = (1,)
                 
-            if calibrations[0].units == calibrations[1].units:
-                tifffile_metadata['kwargs']['unit'] = calibrations[0].units
-            else:
-                tifffile_metadata['kwargs']['unit'] = calibrations[0].units + '_' + calibrations[0].units
+#            if calibrations[0].units == calibrations[1].units:
+#                tifffile_metadata['kwargs']['unit'] = calibrations[0].units
+#            else:
+#                tifffile_metadata['kwargs']['unit'] = calibrations[0].units + '_' + calibrations[0].units
                     
         if data is not None:
             if data.dtype == numpy.uint8 and data.shape[-1] == 3 and len(data.shape) > 1:
                 data = data[:,:,(2, 1, 0)]
             if data.dtype == numpy.uint8 and data.shape[-1] == 4 and len(data.shape) > 1:
                 data = data[:,:,(2, 1, 0, 3)]
-            if data.dtype == numpy.float64:
+            if not (data.dtype == numpy.float32 or data.dtype == numpy.uint8 or data.dtype == numpy.uint16):
                 data = data.astype(numpy.float32)
+            if len(data.shape) == 1:
+                data = data.reshape((1,) + data.shape)
+                resolution = resolution + resolution
             try:
                 tifffile.imsave(file_path, data, resolution=resolution, imagej=True, metadata=tifffile_metadata)
             except Exception as detail:

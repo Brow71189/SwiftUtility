@@ -100,6 +100,12 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         fft_calibration = self.__api.create_calibration(scale=1/(dimensional_calibrations[0].scale*data.shape[0]),
                                                         units='1/'+dimensional_calibrations[1].units if
                                                         dimensional_calibrations[1].units else '')
+        
+        # and then do invert FFT and take the real value.
+        result = scipy.fftpack.ifft2(scipy.fftpack.ifftshift(filtered_fft_data)).real
+        #result = scipy.signal.fftconvolve(data_copy, filter/numpy.sum(filter), mode='same')
+        
+        # All following code is just updating the informational data items (line profile of filter and filtered fft)
         if self.fft_data_item is None:
             try:
                 self.fft_data_item = api.library.create_data_item("Filtered FFT")
@@ -197,10 +203,6 @@ class DoubleGaussianFilterAMOperationDelegate(object):
             self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
         if self.line_profile_data_item is not None:
             self.line_profile_data_item.set_dimensional_calibrations([fft_calibration])
-        
-
-        # and then do invert FFT and take the real value.
-        result = scipy.fftpack.ifft2(scipy.fftpack.ifftshift(filtered_fft_data)).real
 
         return api.create_data_and_metadata_from_data(result.astype(data.dtype), intensity_calibration,
                                                       dimensional_calibrations, metadata)
