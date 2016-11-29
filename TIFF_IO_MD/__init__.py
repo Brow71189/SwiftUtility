@@ -17,7 +17,7 @@ import logging
 # third party libraries
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    from TIFF_IO_MD import tifffile
+    from . import tifffile
 import numpy
 import datetime
 import json
@@ -43,7 +43,7 @@ class TIFFIODelegate(object):
         data = None
         dimensional_calibrations = intensity_calibration = timestamp = data_descriptor = metadata = None
         # Imagej axes names
-        images = channels = slices = frames = samples = None
+        images = channels = slices = frames = None #samples = None
 
         with tifffile.TiffFile(file_path) as tiffimage:
 # TODO: Check whether support for multiple tif pages is necessary (for imagej compatible tifs it isn't)
@@ -63,17 +63,18 @@ class TIFFIODelegate(object):
                 channels = tiffpage.imagej_tags.get('channels')
                 slices = tiffpage.imagej_tags.get('slices')
                 frames = tiffpage.imagej_tags.get('frames')
-                samples = tiffpage.imagej_tags.get('samples')
+                #samples = tiffpage.imagej_tags.get('samples')
                 
                     
             # Try to get swift metadata if file is not imagej type
             if metadata_dict is None:
-                description = tiffpage.tags['image_description']
-                try:
-                    description_dict = tifffile.image_description_dict(description.value)
-                except ValueError as detail:
-                    print(detail)
-                    description_dict = {}
+                description = tiffpage.tags.get('image_description')
+                description_dict = {}
+                if description is not None:
+                    try:
+                        description_dict = tifffile.image_description_dict(description.value)
+                    except ValueError as detail:
+                        print(detail)
                 metadata_dict = description_dict.get('nion_swift')
             
             expected_number_dimensions = None
@@ -83,9 +84,26 @@ class TIFFIODelegate(object):
                                               int(metadata_dict.get('is_sequence', False)))
                                               
             data = tiffpage.asarray()
-
-            # number of axis in swift metadata is wrong or it could not be determined and imagej metadata is there use
-            # this information to reshape array
+            
+            # check and adapt for rgb(a) data
+            # last data axis depends on whether data is rgb(a)
+            last_data_axis = -1
+            is_rgb = False
+            if tiffpage.photometric in ('rgb', 'palette'):
+                print('Image is rgb type, (shape: {})'.format(data.shape))
+                is_rgb = True
+                if expected_number_dimensions is not None:
+                    expected_number_dimensions += 1
+                last_data_axis = -2
+                if data.shape[-1] == 3:
+                    data = data[...,(2, 1, 0)]
+                if data.shape[-1] == 4:
+                    data = data[...,(2, 1, 0, 3)]
+                # Swift only supports 8-bit color images
+                data = data.astype(numpy.uint8)
+                
+            # if number of axis in swift metadata is wrong or it could not be determined and imagej metadata is there
+            # use this information to reshape array
             if (expected_number_dimensions is None or
                 expected_number_dimensions != len(data.shape)) and (
                 numpy.array([images, channels, slices, frames]).astype('bool').any()):
@@ -95,14 +113,14 @@ class TIFFIODelegate(object):
                 shape = numpy.array(tiffpage._shape)
                 
                 if channels is not None:
-                    if shape[2] != channels and shape[0]/channels > 1:
+                    if shape[2] != channels and shape[0]/channels >= 1:
                         shape[2] = channels
                         shape[0] = int(shape[0]/channels)
                     if slices is not None:
-                        if shape[1] != slices and shape[0]/slices > 1:                            
+                        if shape[1] != slices and shape[0]/slices >= 1:                            
                             shape[1] = slices
                             shape[0] = int(shape[0]/slices)
-                
+                print('Shape: ' + str(shape))
                 if shape[0] > 1:
                     is_sequence = True
                 if shape[1] > 1:
@@ -121,9 +139,10 @@ class TIFFIODelegate(object):
                     metadata_dict['collection_dimension_count'] = collection_dimension_count
                     metadata_dict['datum_dimension_count'] = datum_dimension_count
                     metadata_dict['is_sequence'] = is_sequence
-                    expected_number_dimensions = collection_dimension_count + datum_dimension_count + int(is_sequence)
+                    expected_number_dimensions = (collection_dimension_count + datum_dimension_count +
+                                                  int(is_sequence) + int(is_rgb))
                 else:
-                    print('Could not reshape data with shape ({}) to estimated shape ({})'.format(data.shape,
+                    print('Could not reshape data with shape {} to estimated shape {}'.format(data.shape,
                                                                                                   tuple(shape)))
             
             # if number of dimensions calculated from swift metadata matches actual number of dimensions, we assume
@@ -133,24 +152,24 @@ class TIFFIODelegate(object):
                 if metadata_dict.get('collection_dimension_count', 0) > 0:
                     # for 2d data in a collection we move also the second data axis
                     if metadata_dict.get('datum_dimension_count', 1) == 2:
-                        data = numpy.moveaxis(data, 0, -1)
+                        data = numpy.moveaxis(data, 0, last_data_axis)
                     # for a collection we need to move the data axis to the last position
-                    data = numpy.moveaxis(data, 0, -1)
+                    data = numpy.moveaxis(data, 0, last_data_axis)
             # delete shape estimators from metadata dict to avoid errors during import into Swift
             elif expected_number_dimensions is not None and metadata_dict is not None:
                 print('Removed shape descriptors to avoid errors during import. ' + str(metadata_dict))
                 metadata_dict.pop('collection_dimension_count', None)
                 metadata_dict.pop('datum_dimension_count', None)
                 metadata_dict.pop('is_sequence', None)
+        
+        # rbg axis does not have a calibration, therefore create a shape tuple that is independent from whether
+        # data is rbg for adjusting calibrations
+        data_shape = data.shape
+        if is_rgb:
+            data_shape = data_shape[:-1]
             
-# TODO: Add rgb(a) data support
-#        if data.dtype == numpy.uint8 and data.shape[-1] == 3 and len(data.shape) > 1:
-#            data = data[:,:,(2, 1, 0)]
-#        if data.dtype == numpy.uint8 and data.shape[-1] == 4 and len(data.shape) > 1:
-#            data = data[:,:,(2, 1, 0, 3)]
-
         # remove calibrations if their number is wrong
-        if dimensional_calibrations is not None and len(dimensional_calibrations) != len(data.shape):
+        if dimensional_calibrations is not None and len(dimensional_calibrations) != len(data_shape):
             dimensional_calibrations = None
         # If no dimensional calibrations were found in the swift metadata, try to use imagej calibrations
         if dimensional_calibrations is None:
@@ -173,7 +192,7 @@ class TIFFIODelegate(object):
                                                         units=unit)]
                     # Add "empty" calibrations for remaining axis
                     number_calibrations = len(dimensional_calibrations)
-                    for i in range(len(data.shape) - number_calibrations):
+                    for i in range(len(data_shape) - number_calibrations):
                         dimensional_calibrations.append(self.__api.create_calibration())
                 else:
                     # Assume that x- and y-calibration is for data
@@ -191,7 +210,7 @@ class TIFFIODelegate(object):
                     # If calibrations were created, make sure their number is correct
                     if dimensional_calibrations is not None:
                         number_calibrations = len(dimensional_calibrations)
-                        for i in range(len(data.shape) - number_calibrations):
+                        for i in range(len(data_shape) - number_calibrations):
                             dimensional_calibrations.insert(0, self.__api.create_calibration())
             # If no swift metadata is there use calibrations for guessed axes
             else:
@@ -205,19 +224,23 @@ class TIFFIODelegate(object):
                                                    units=unit))
                 # Add "empty" calibrations for remaining axes
                 number_calibrations = len(dimensional_calibrations)
-                for i in range(len(data.shape) - number_calibrations):
+                for i in range(len(data_shape) - number_calibrations):
                     dimensional_calibrations.insert(0, self.__api.create_calibration())
         
         # create Swift data descriptors
         if metadata_dict is not None:
-            dimensional_calibrations, intensity_calibration, timestamp, data_descriptor, metadata = (
+            dimensional_calibrations2, intensity_calibration, timestamp, data_descriptor, metadata = (
                                                        self.create_data_descriptors_from_metadata_dict(metadata_dict))
-        
+            # Use dimensional calibrations from swift metadata if they were there, else the ones created above
+            if dimensional_calibrations2 is not None:
+                dimensional_calibrations = dimensional_calibrations2
+                
         # If data is 3d and no swift metadata was found make is_sequence True because a stack of images will be the
         # most likely case of imported 3d data
-        if data_descriptor is None and len(data.shape) == 3:
+        if data_descriptor is None and len(data_shape) == 3:
             data_descriptor = self.__api.create_data_descriptor(True, 0, 2)
         print(dimensional_calibrations, intensity_calibration, timestamp, data_descriptor, metadata)
+        print('Data shape: ' + str(data.shape))
         data_and_metadata = self.__api.create_data_and_metadata(data, intensity_calibration, dimensional_calibrations,
                                                                 metadata, timestamp, data_descriptor)
         return data_and_metadata
@@ -240,58 +263,67 @@ class TIFFIODelegate(object):
         tifffile_metadata['kwargs']['nion_swift'] = json.dumps(metadata_dict)
                     
         if data is not None:
-#            if data.dtype == numpy.uint8 and data.shape[-1] == 3 and len(data.shape) > 1:
-#                data = data[:,:,(2, 1, 0)]
-#            if data.dtype == numpy.uint8 and data.shape[-1] == 4 and len(data.shape) > 1:
-#                data = data[:,:,(2, 1, 0, 3)]
-#            if not (data.dtype == numpy.float32 or data.dtype == numpy.uint8 or data.dtype == numpy.uint16):
-#                data = data.astype(numpy.float32)
-
+            data_shape = data.shape
 # TODO: support data that is a sequence AND a collection
-# TODO: handle rgb(a) data
                 
             # create shape that is used for tif so that array is interpreted correctly by imagej
             tifffile_shape = numpy.ones(6, dtype=numpy.int)
+            
+            # last data axis depends on whether data is rgb(a) or not
+            last_data_axis = -1
+            
+            # check and adapt for rgb(a) data            
+            if data_and_metadata.is_data_rgb:
+                data = data[...,(2, 1, 0)]
+                data_shape = data_shape[:-1]
+                tifffile_shape[-1] = 3
+                last_data_axis = -2
+            if data_and_metadata.is_data_rgba:
+                data_shape = data_shape[:-1]
+                data = data[...,(2, 1, 0, 3)]
+                tifffile_shape[-1] = 4
+                last_data_axis = -2
+                
             if data_and_metadata.collection_dimension_count > 0:
                 # if data is a collection, put collection axis in x-and y of tif
-                tifffile_shape[4] = data.shape[0]
+                tifffile_shape[4] = data_shape[0]
                 # use collection x-calibration as x-calibration in tif
                 resolution = (1/calibrations[0].scale, ) if calibrations[0].scale != 0 else (1, )
                 # use x-unit in tif (unfortunately there is no way to save separate units for x- and y)
                 unit = calibrations[0].units
                 # if data is a 2d-collection, also fill y-axis of tif
                 if data_and_metadata.collection_dimension_count == 2:
-                    tifffile_shape[3] = data.shape[1]
+                    tifffile_shape[3] = data_shape[1]
                     # add collection y-calibration as y-calibration in tif
                     resolution += (1/calibrations[1].scale, ) if calibrations[1].scale != 0 else (1, )
                 # for data x-axis use tif "channel" axis
-                tifffile_shape[2] = data.shape[-1]
+                tifffile_shape[2] = data_shape[-1]
                 # if data is 2d, put y-axis in tif z-axis (there is no better option unfortunately)
                 if data_and_metadata.datum_dimension_count == 2:
-                    tifffile_shape[1] = data.shape[-2]
+                    tifffile_shape[1] = data_shape[-2]
             else:
                 if data_and_metadata.is_sequence:
                     # Put sequence axis in "time" axis of tif
-                    tifffile_shape[0] = data.shape[0]
+                    tifffile_shape[0] = data_shape[0]
                 # data x-axis goes in tif x-axis
-                tifffile_shape[4] = data.shape[-1]
+                tifffile_shape[4] = data_shape[-1]
                 # use data x-calibration as x-calibration in tif
                 resolution = (1/calibrations[-1].scale, ) if calibrations[-1].scale != 0 else (1, )
                 # use x-unit in tif (unfortunately there is no way to save separate units for x- and y)
                 unit = calibrations[-1].units
                 # if data is 2d, also put y-axis there
                 if data_and_metadata.datum_dimension_count == 2:
-                    tifffile_shape[3] = data.shape[-2]
+                    tifffile_shape[3] = data_shape[-2]
                     # use data y-calibration as y-calibration in tif
                     resolution += (1/calibrations[-2].scale, ) if calibrations[-2].scale != 0 else (1, )
             
             # change axis order if necessary
             if data_and_metadata.collection_dimension_count > 0:
                 # for a collection we need to move the data axis in front of collection axis
-                data = numpy.moveaxis(data, -1, 0)
+                data = numpy.moveaxis(data, last_data_axis, 0)
                 # for 2d data also move the second data axis in front
                 if data_and_metadata.datum_dimension_count == 2:
-                    data = numpy.moveaxis(data, -1, 0)
+                    data = numpy.moveaxis(data, last_data_axis, 0)
             
             # make sure "resolution" is always a 2-tuple
             if resolution is not None and len(resolution) < 2:
