@@ -4,8 +4,8 @@
     This module enables import/export of imagej compatible tif files from/to Swift.
     It will also read non-imagej tiffs, but the correct handling and shaping of multidimensional data is limited to
     files created with imagej or files that were exported with Swift.
-    Files exported with Swift will keep their metadata when exported. This metadata will also be restored on re-import
-    Currently the support is limited to greyscale data of 1 to 4 dimensions.
+    Files exported with Swift will keep their metadata when exported. This metadata will also be restored on re-import.
+    Currently the support is limited to greyscale/rgb(a) data of 1 to 4 dimensions.
     
 """
 
@@ -47,6 +47,9 @@ class TIFFIODelegate(object):
 
         with tifffile.TiffFile(file_path) as tiffimage:
 # TODO: Check whether support for multiple tif pages is necessary (for imagej compatible tifs it isn't)
+# Non-imagej compatible tifs are written (by tifffile.py) into multiple pages if they have more than 2 dimensions
+# There is also a 'shape' attribute that describes the original shape for those files. This information could be used
+# to properly load these files as well. However, right now, only the fist page will be loaded and imported
             tiffpage = tiffimage.pages[0]
             # Try if image is imagej type
             if tiffimage.is_imagej:
@@ -73,9 +76,13 @@ class TIFFIODelegate(object):
                 if description is not None:
                     try:
                         description_dict = tifffile.image_description_dict(description.value)
+                        print(description_dict)
                     except ValueError as detail:
                         print(detail)
-                metadata_dict = description_dict.get('nion_swift')
+                try:
+                    metadata_dict = json.loads(description_dict.get('nion_swift'))
+                except Exception as detail:
+                    print(detail)
             
             expected_number_dimensions = None
             if metadata_dict is not None:
@@ -120,7 +127,7 @@ class TIFFIODelegate(object):
                         if shape[1] != slices and shape[0]/slices >= 1:                            
                             shape[1] = slices
                             shape[0] = int(shape[0]/slices)
-                print('Shape: ' + str(shape))
+                            
                 if shape[0] > 1:
                     is_sequence = True
                 if shape[1] > 1:
@@ -167,6 +174,14 @@ class TIFFIODelegate(object):
         data_shape = data.shape
         if is_rgb:
             data_shape = data_shape[:-1]
+        
+        # create Swift data descriptors
+        if metadata_dict is not None:
+            dimensional_calibrations2, intensity_calibration, timestamp, data_descriptor, metadata = (
+                                                       self.create_data_descriptors_from_metadata_dict(metadata_dict))
+            # Use dimensional calibrations from swift metadata if they were there, else the ones created above
+            if dimensional_calibrations2 is not None:
+                dimensional_calibrations = dimensional_calibrations2
             
         # remove calibrations if their number is wrong
         if dimensional_calibrations is not None and len(dimensional_calibrations) != len(data_shape):
@@ -226,14 +241,6 @@ class TIFFIODelegate(object):
                 number_calibrations = len(dimensional_calibrations)
                 for i in range(len(data_shape) - number_calibrations):
                     dimensional_calibrations.insert(0, self.__api.create_calibration())
-        
-        # create Swift data descriptors
-        if metadata_dict is not None:
-            dimensional_calibrations2, intensity_calibration, timestamp, data_descriptor, metadata = (
-                                                       self.create_data_descriptors_from_metadata_dict(metadata_dict))
-            # Use dimensional calibrations from swift metadata if they were there, else the ones created above
-            if dimensional_calibrations2 is not None:
-                dimensional_calibrations = dimensional_calibrations2
                 
         # If data is 3d and no swift metadata was found make is_sequence True because a stack of images will be the
         # most likely case of imported 3d data
@@ -254,13 +261,13 @@ class TIFFIODelegate(object):
         #metadata = data_and_metadata.metadata
         resolution = None
         unit = None
-        tifffile_metadata={'kwargs': {}}
+        tifffile_metadata={}
         
         calibrations = data_and_metadata.dimensional_calibrations
 
-        tifffile_metadata['kwargs']['unit'] = ''
+        tifffile_metadata['unit'] = ''
         metadata_dict = self.extract_metadata_dict_from_data_and_metadata(data_and_metadata)
-        tifffile_metadata['kwargs']['nion_swift'] = json.dumps(metadata_dict)
+        tifffile_metadata['nion_swift'] = json.dumps(metadata_dict)
                     
         if data is not None:
             data_shape = data.shape
@@ -330,7 +337,7 @@ class TIFFIODelegate(object):
                 resolution += (1,)
             # add unit to tif tags
             if unit is not None:
-                tifffile_metadata['kwargs']['unit'] = unit
+                tifffile_metadata['unit'] = unit
             
             data = data.reshape(tuple(tifffile_shape))
             
@@ -340,7 +347,7 @@ class TIFFIODelegate(object):
             try:
                 tifffile.imsave(file_path, data, resolution=resolution, imagej=True, metadata=tifffile_metadata, software='Nion Swift')
             except Exception as detail:
-                tifffile.imsave(file_path, data, resolution=resolution, metadata=tifffile_metadata['kwargs'])
+                tifffile.imsave(file_path, data, resolution=resolution, metadata=tifffile_metadata)
                 logging.warn('Could not save metadata in tiff. Reason: ' + str(detail))
                 
     def extract_metadata_dict_from_data_and_metadata(self, data_and_metadata):
