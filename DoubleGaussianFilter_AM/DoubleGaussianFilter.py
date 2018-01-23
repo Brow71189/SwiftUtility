@@ -49,9 +49,9 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         self.interval_region = None
         self.parameters = {'sigma1': 0.4, 'sigma2': 0.2, 'weight': 0.3, 'show_gpp': True}
         self.source_data_item = None
-     
+
     def create_panel_widget(self, ui, document_controller):
-        
+
         def sigma_1_field_enter(text):
             if len(text) > 0 and self.source_data_item is not None:
                 try:
@@ -62,10 +62,10 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                     if value != self.parameters.get('sigma1'):
                         self.parameters['sigma1'] = value
                         self.update_calculation()
-            
+
             sigma_1_field.text = '{:g}'.format(self.parameters.get('sigma1'))
             sigma_1_field.select_all()
-        
+
         def sigma_2_field_enter(text):
             if len(text) > 0 and self.source_data_item is not None:
                 try:
@@ -76,10 +76,10 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                     if value != self.parameters.get('sigma2'):
                         self.parameters['sigma2'] = value
                         self.update_calculation()
-            
+
             sigma_2_field.text = '{:g}'.format(self.parameters.get('sigma2'))
             sigma_2_field.select_all()
-        
+
         def weight_field_enter(text):
             if len(text) > 0 and self.source_data_item is not None:
                 try:
@@ -90,10 +90,10 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                     if value != self.parameters.get('weight'):
                         self.parameters['weight'] = value
                         self.update_calculation()
-            
+
             weight_field.text = '{:g}'.format(self.parameters.get('weight'))
             weight_field.select_all()
-        
+
         def show_graphene_positions_changed(check_state):
             if self.source_data_item is not None:
                 if show_graphene_positions.checked != self.parameters.get('show_gpp'):
@@ -101,11 +101,11 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                     self.update_calculation()
             else:
                 show_graphene_positions.checked = self.parameters.get('show_gpp')
-        
+
         def run_button_clicked():
             self.source_data_item = document_controller.target_data_item
             self.update_calculation()
-        
+
         column = ui.create_column_widget()
         sigma_1_label = ui.create_label_widget('Sigma 1 (large) ')
         sigma_1_field = ui.create_line_edit_widget()
@@ -114,12 +114,15 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         weight_label = ui.create_label_widget('Weight ')
         weight_field = ui.create_line_edit_widget()
         show_graphene_positions = ui.create_check_box_widget('Show graphene peak positions')
-        run_button = ui.create_push_button_widget('Run')
-        
+        run_button = ui.create_push_button_widget('Connect to data item')
+        info_label = ui.create_label_widget('To update values type a new number into the\n' +
+                                            'respective field and hit enter.')
+
         sigma_row = ui.create_row_widget()
         weight_row = ui.create_row_widget()
         run_row = ui.create_row_widget()
-        
+        info_row = ui.create_row_widget()
+
         sigma_row.add_spacing(5)
         sigma_row.add(sigma_1_label)
         sigma_row.add(sigma_1_field)
@@ -128,41 +131,48 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         sigma_row.add(sigma_2_field)
         sigma_row.add_spacing(5)
         sigma_row.add_stretch()
-        
+
         weight_row.add_spacing(5)
         weight_row.add_stretch()
         weight_row.add(weight_label)
         weight_row.add(weight_field)
         weight_row.add_spacing(5)
-        
+
         run_row.add_spacing(5)
         run_row.add(run_button)
         run_row.add_spacing(10)
         run_row.add_stretch()
         run_row.add(show_graphene_positions)
         run_row.add_spacing(5)
-        
+
+        info_row.add_spacing(5)
+        info_row.add(info_label)
+        info_row.add_spacing(5)
+        info_row.add_stretch()
+
         column.add_spacing(5)
         column.add(sigma_row)
         column.add(weight_row)
         column.add(run_row)
         column.add_spacing(5)
+        column.add(info_row)
+        column.add_spacing(5)
         column.add_stretch()
-        
+
         sigma_1_field.on_editing_finished = sigma_1_field_enter
         sigma_2_field.on_editing_finished = sigma_2_field_enter
         weight_field.on_editing_finished = weight_field_enter
         run_button.on_clicked = run_button_clicked
         show_graphene_positions.on_check_state_changed = show_graphene_positions_changed
-        
+
         sigma_1_field_enter('')
         sigma_2_field_enter('')
         weight_field_enter('')
-        
+
         show_graphene_positions.checked = self.parameters.get('show_gpp')
-        
+
         return column
-        
+
 
     def update_calculation(self):
         result_data_item = self.get_result_data_item()
@@ -205,36 +215,37 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         yy_max = int(math.floor(data.shape[0] / 2))
         xx_min = int(math.floor(-data.shape[1] / 2))
         xx_max = int(math.floor(data.shape[1] / 2))
-        xx, yy = numpy.meshgrid(numpy.linspace(yy_min, yy_max, data.shape[0]),
-                                numpy.linspace(xx_min, xx_max, data.shape[1]))
+        yy, xx = numpy.meshgrid(numpy.linspace(yy_min, yy_max, data.shape[0]),
+                                numpy.linspace(xx_min, xx_max, data.shape[1]),
+                                indexing='ij')
 
         # calculate the pixel distance from the center
-        rr = numpy.sqrt(numpy.square(xx) + numpy.square(yy)) / (data.shape[0] * 0.5)
+        rr = numpy.sqrt(numpy.square(xx/(data.shape[1] * 0.5)) + numpy.square(yy/(data.shape[0] * 0.5)))
 
         # finally, apply a filter to the Fourier space data.
         filter = numpy.exp(-0.5 * numpy.square(rr / sigma1)) - (1.0 - weight2) * numpy.exp(
             -0.5 * numpy.square(rr / sigma2))
-        
+
         central_value = fft_data[int(data.shape[0]/2), int(data.shape[1]/2)]
         filtered_fft_data = fft_data * filter
         # Normalize result
         filtered_fft_data[int(data.shape[0]/2), int(data.shape[1]/2)] = central_value
-        
+
         fft_calibration = self.__api.create_calibration(scale=1/(dimensional_calibrations[0].scale*data.shape[0]),
                                                         units=dimensional_calibrations[1].units + '\u207b\u00b9' if
                                                         dimensional_calibrations[1].units else '')
-        
+
         # and then do invert FFT and take the real value.
         result = scipy.fftpack.ifft2(scipy.fftpack.ifftshift(filtered_fft_data)).real
         #result = scipy.signal.fftconvolve(data_copy, filter/numpy.sum(filter), mode='same')
-        
+
         # All following code is just updating the informational data items (line profile of filter and filtered fft)
         if self.fft_data_item is None:
             self.fft_data_item = self.get_fft_data_item()
-            
+
         if self.line_profile_data_item is None:
             self.line_profile_data_item = self.get_line_data_item()
-            
+
         if self.fft_data_item is not None:
             for region in self.fft_data_item.regions:
                 self.fft_data_item.remove_region(region)
@@ -249,7 +260,7 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                 self.small_ellipse_region.set_property('is_shape_locked', True)
             except Exception as detail:
                 print('Could not add small ellipse region. Reason: ' + str(detail))
-            
+
 #            if self.big_ellipse_region is not None:
 #                try:
 #                    self.fft_data_item.remove_region(self.big_ellipse_region)
@@ -263,7 +274,7 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                 print('Could not add big ellipse region. Reason: ' + str(detail))
 
             self.fft_data_item.set_data((numpy.log(numpy.abs(fft_data))*filter).astype(numpy.float32))
-        
+
         if self.line_profile_data_item is not None:
             try:
                 self.line_profile_data_item.set_data((filter[int(filter.shape[0]/2),
@@ -275,7 +286,7 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                                                                         title="Line Profile of Filter")
                 self.line_profile_data_item.set_data((filter[int(filter.shape[0]/2),
                                             int(filter.shape[1]/2):int(filter.shape[1]/2*(1+2*sigma1))]).astype(numpy.float32))
-        
+
         if show_gpp:
             if self.line_profile_data_item is not None:
                 for region in self.line_profile_data_item.regions:
@@ -297,10 +308,10 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                     if line_length > 8.13:
                         self.interval_region = self.line_profile_data_item.add_interval_region(4.69/line_length,
                                                                                                8.13/line_length)
-                                                                                               
+
         if self.interval_region is not None:
             self.interval_region.set_property('label', 'Graphene Peak Positions')
-            
+
         if not show_gpp and self.interval_region is not None:
             try:
                 self.line_profile_data_item.remove_region(self.interval_region)
@@ -308,8 +319,8 @@ class DoubleGaussianFilterAMOperationDelegate(object):
                 print('Could not remove interval region. Reason: ' + str(detail))
             else:
                 self.interval_region = None
-                
-        if self.fft_data_item is not None:            
+
+        if self.fft_data_item is not None:
             self.fft_data_item.set_dimensional_calibrations([fft_calibration, fft_calibration])
         if self.line_profile_data_item is not None:
             self.line_profile_data_item.set_dimensional_calibrations([fft_calibration])
@@ -317,20 +328,20 @@ class DoubleGaussianFilterAMOperationDelegate(object):
         return api.create_data_and_metadata_from_data(result.astype(data.dtype), intensity_calibration,
                                                       dimensional_calibrations, metadata)
         #return api.create_data_and_metadata_from_data(filtered_fft_data, intensity_calibration, dimensional_calibrations, metadata)
-        
+
     def update_metadata(self, data_item, key, value):
         metadata = data_item.metadata
         metadata[key] = value
         data_item.set_metadata(metadata)
-    
+
     def get_metadata_value(self, data_item, key):
         return data_item.metadata.get(key)
-    
+
     def update_session_metadata(self, key, value):
         metadata = self.__api.library._document_model.session_metadata.copy()
         metadata[key] = value
         self.__api.library._document_model.session_metadata = metadata
-    
+
     def get_session_metadata_value(self, key):
         try:
             value = self.__api.library._document_model.session_metadata[key]
@@ -338,7 +349,7 @@ class DoubleGaussianFilterAMOperationDelegate(object):
             return None
         else:
             return value
-    
+
     def get_fft_data_item(self):
         fft_uuid = self.get_session_metadata_value('double_gaussian_filter_am.fft_uuid')
         fft_data_item = None
@@ -358,21 +369,21 @@ class DoubleGaussianFilterAMOperationDelegate(object):
             line_data_item = self.__api.library.create_data_item("Line Profile of Filter")
             self.update_session_metadata('double_gaussian_filter_am.line_uuid', line_data_item.uuid.hex)
         return line_data_item
-    
+
     def get_result_data_item(self):
         if self.source_data_item is None:
             return
-        
+
         result_uuid = self.get_metadata_value(self.source_data_item, 'double_gaussian_filter_am.result_uuid')
-            
+
         if result_uuid is not None:
             result_data_item = self.__api.library.get_data_item_by_uuid(uuid.UUID(result_uuid))
         else:
             result_data_item = None
-            
+
         if result_data_item is None:
             result_data_item = self.__api.library.create_data_item('Double Gaussian Filter of ' + self.source_data_item.title)
-        
+
         return result_data_item
 
 
